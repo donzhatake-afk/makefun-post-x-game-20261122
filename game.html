@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Star Snake — one prompt, one game</title>
+<style>
+  body { margin: 0; background: #070b14; color: #e8f0ff; font-family: system-ui, sans-serif;
+         display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  h1 { font-size: 22px; margin: 16px 0 4px; }
+  p { margin: 4px 0 12px; color: #9fb3d8; font-size: 14px; }
+  #score { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  canvas { background: #0c1424; border: 2px solid #1e2c4a; border-radius: 12px;
+           max-width: 94vw; max-height: 62vh; touch-action: none; }
+  .pad { display: grid; grid-template-columns: repeat(3, 64px); gap: 6px; margin-top: 14px; }
+  .pad button { height: 56px; font-size: 22px; background: #16233d; color: #e8f0ff;
+                border: 1px solid #2b3f66; border-radius: 10px; cursor: pointer; }
+  .pad button:active { background: #24406e; }
+</style>
+</head>
+<body>
+<h1>🐍 Star Snake</h1>
+<p>Arrow keys / WASD / tap the pad — eat stars, don't hit the walls or yourself.</p>
+<div id="score">Score: 0</div>
+<canvas id="game" width="720" height="960"></canvas>
+<div class="pad">
+  <span></span><button data-dir="up">▲</button><span></span>
+  <button data-dir="left">◀</button><button data-dir="down">▼</button><button data-dir="right">▶</button>
+</div>
+<script>
+(function () {
+  var COLS = 15, ROWS = 20, CELL = 48;
+  var canvas = document.getElementById('game');
+  var ctx = canvas.getContext('2d');
+  var scoreEl = document.getElementById('score');
+
+  function freshState() {
+    return {
+      snake: [{ x: 7, y: 10 }, { x: 6, y: 10 }, { x: 5, y: 10 }],
+      dir: { x: 1, y: 0 },
+      pending: [],
+      star: { x: 11, y: 10 },
+      score: 0,
+      eaten: 0,
+      over: false,
+      steps: 0
+    };
+  }
+  var state = freshState();
+
+  function randomStar() {
+    var cell;
+    do {
+      cell = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
+    } while (state.snake.some(function (s) { return s.x === cell.x && s.y === cell.y; }));
+    return cell;
+  }
+
+  function setDir(x, y) {
+    var last = state.pending.length ? state.pending[state.pending.length - 1] : state.dir;
+    if (x === -last.x && y === -last.y) return; // no reversing into yourself
+    if (x === last.x && y === last.y) return;
+    if (state.pending.length < 3) state.pending.push({ x: x, y: y });
+  }
+
+  // One logic tick. Pure w.r.t. rendering: advances the snake one cell.
+  function step() {
+    if (state.over) return state;
+    if (state.pending.length) state.dir = state.pending.shift();
+    var head = { x: state.snake[0].x + state.dir.x, y: state.snake[0].y + state.dir.y };
+    state.steps++;
+    if (head.x < 0 || head.y < 0 || head.x >= COLS || head.y >= ROWS ||
+        state.snake.some(function (s) { return s.x === head.x && s.y === head.y; })) {
+      state.over = true;
+      return state;
+    }
+    state.snake.unshift(head);
+    if (head.x === state.star.x && head.y === state.star.y) {
+      state.score += 10;
+      state.eaten++;
+      state.star = randomStar();
+    } else {
+      state.snake.pop();
+    }
+    return state;
+  }
+
+  function speed() { return Math.min(14, 7 + state.eaten * 0.4); } // ticks per second
+
+  function draw() {
+    ctx.fillStyle = '#0c1424';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#111d33';
+    ctx.lineWidth = 1;
+    for (var gx = 0; gx <= COLS; gx++) { ctx.beginPath(); ctx.moveTo(gx * CELL, 0); ctx.lineTo(gx * CELL, ROWS * CELL); ctx.stroke(); }
+    for (var gy = 0; gy <= ROWS; gy++) { ctx.beginPath(); ctx.moveTo(0, gy * CELL); ctx.lineTo(COLS * CELL, gy * CELL); ctx.stroke(); }
+    // star
+    var sx = state.star.x * CELL + CELL / 2, sy = state.star.y * CELL + CELL / 2;
+    ctx.fillStyle = '#ffd94d';
+    ctx.beginPath();
+    for (var i = 0; i < 10; i++) {
+      var r = i % 2 === 0 ? 18 : 8, a = -Math.PI / 2 + i * Math.PI / 5;
+      ctx[i === 0 ? 'moveTo' : 'lineTo'](sx + r * Math.cos(a), sy + r * Math.sin(a));
+    }
+    ctx.closePath(); ctx.fill();
+    // snake
+    state.snake.forEach(function (seg, i) {
+      var t = 1 - i / state.snake.length;
+      ctx.fillStyle = i === 0 ? '#7CFC9A' : 'rgb(' + Math.round(46 + 60 * t) + ',' + Math.round(204 * t + 40) + ',' + Math.round(90 + 60 * t) + ')';
+      ctx.beginPath();
+      ctx.arc(seg.x * CELL + CELL / 2, seg.y * CELL + CELL / 2, CELL / 2 - 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    scoreEl.textContent = state.over ? 'Game over — Score: ' + state.score + ' (press Space to restart)'
+                                     : 'Score: ' + state.score;
+    if (state.over) {
+      ctx.fillStyle = 'rgba(4,8,18,0.72)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 44px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 10);
+      ctx.font = '28px system-ui, sans-serif';
+      ctx.fillText('Score: ' + state.score, canvas.width / 2, canvas.height / 2 + 40);
+    }
+  }
+
+  // Exposed for automated runs / testing: the real game logic, no rendering needed.
+  window.SNAKE = { state: state, step: step, setDir: setDir, freshState: freshState, COLS: COLS, ROWS: ROWS,
+    reset: function () { state = freshState(); window.SNAKE.state = state; } };
+
+  var keys = { ArrowUp: [-0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+               w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0], W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0] };
+  document.addEventListener('keydown', function (e) {
+    if (e.key === ' ' && state.over) { window.SNAKE.reset(); return; }
+    if (keys[e.key]) { setDir(keys[e.key][0], keys[e.key][1]); e.preventDefault(); }
+  });
+  document.querySelectorAll('.pad button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var d = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[b.dataset.dir];
+      setDir(d[0], d[1]);
+    });
+  });
+
+  var last = 0, acc = 0;
+  function loop(t) {
+    requestAnimationFrame(loop);
+    if (!last) last = t;
+    acc += t - last; last = t;
+    var interval = 1000 / speed();
+    while (acc >= interval && !state.over) { step(); acc -= interval; }
+    draw();
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
